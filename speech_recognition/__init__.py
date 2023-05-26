@@ -71,12 +71,13 @@ class Microphone(AudioSource):
 
     Higher ``chunk_size`` values help avoid triggering on rapidly changing ambient noise, but also makes detection less sensitive. This value, generally, should be left at its default.
     """
-    def __init__(self, device_index=None, sample_rate=None, chunk_size=1024):
+    def __init__(self, device_index=None, sample_rate=None, chunk_size=1024, speaker=False, channels = 1):
         assert device_index is None or isinstance(device_index, int), "Device index must be None or an integer"
         assert sample_rate is None or (isinstance(sample_rate, int) and sample_rate > 0), "Sample rate must be None or a positive integer"
         assert isinstance(chunk_size, int) and chunk_size > 0, "Chunk size must be a positive integer"
 
         # set up PyAudio
+        self.speaker=speaker
         self.pyaudio_module = self.get_pyaudio()
         audio = self.pyaudio_module.PyAudio()
         try:
@@ -95,6 +96,7 @@ class Microphone(AudioSource):
         self.SAMPLE_WIDTH = self.pyaudio_module.get_sample_size(self.format)  # size of each sample
         self.SAMPLE_RATE = sample_rate  # sampling rate in Hertz
         self.CHUNK = chunk_size  # number of frames stored in each buffer
+        self.channels = channels
 
         self.audio = None
         self.stream = None
@@ -105,7 +107,7 @@ class Microphone(AudioSource):
         Imports the pyaudio module and checks its version. Throws exceptions if pyaudio can't be found or a wrong version is installed
         """
         try:
-            import pyaudio
+            import pyaudiowpatch as pyaudio
         except ImportError:
             raise AttributeError("Could not find PyAudio; check installation")
         from distutils.version import LooseVersion
@@ -173,13 +175,27 @@ class Microphone(AudioSource):
     def __enter__(self):
         assert self.stream is None, "This audio source is already inside a context manager"
         self.audio = self.pyaudio_module.PyAudio()
+
         try:
-            self.stream = Microphone.MicrophoneStream(
-                self.audio.open(
-                    input_device_index=self.device_index, channels=1, format=self.format,
-                    rate=self.SAMPLE_RATE, frames_per_buffer=self.CHUNK, input=True,
+            if self.speaker:
+                p = self.audio
+                self.stream = Microphone.MicrophoneStream(
+                    p.open(
+                        input_device_index=self.device_index,
+                        channels=self.channels,
+                        format=self.format,
+                        rate=self.SAMPLE_RATE,
+                        frames_per_buffer=self.CHUNK,
+                        input=True
+                    )
                 )
-            )
+            else:
+                self.stream = Microphone.MicrophoneStream(
+                    self.audio.open(
+                        input_device_index=self.device_index, channels=1, format=self.format,
+                        rate=self.SAMPLE_RATE, frames_per_buffer=self.CHUNK, input=True,
+                    )
+                )
         except Exception:
             self.audio.terminate()
         return self
@@ -205,7 +221,6 @@ class Microphone(AudioSource):
                     self.pyaudio_stream.stop_stream()
             finally:
                 self.pyaudio_stream.close()
-
 
 class AudioFile(AudioSource):
     """
